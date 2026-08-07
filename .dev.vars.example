@@ -1,0 +1,13 @@
+# Copy to .dev.vars (gitignored) for local `wrangler dev`.
+# In production these are set via `wrangler secret put NAME`.
+
+# FatSecret OAuth 1.0 — used for ALL calls (public + profile).
+# Get from platform.fatsecret.com → API Keys → "OAuth 1.0".
+# Note: we do NOT use OAuth 2.0 because it requires IP whitelist
+# (incompatible with Workers' floating edge IPs).
+FATSECRET_CONSUMER_KEY=
+FATSECRET_CONSUMER_SECRET=
+
+# Shared secret the Claude custom connector presents to /token.
+# Generate with: openssl rand -hex 32
+COACH_OAUTH_CLIENT_SECRET=

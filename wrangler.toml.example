@@ -1,0 +1,50 @@
+# Copy to wrangler.toml (gitignored) and fill in your own values.
+#   cp wrangler.toml.example wrangler.toml
+
+name = "fatsecret-coach"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Fallback user id, used when a bearer token isn't mapped to anyone.
+COACH_USER_ID = "me"
+
+# Household members, comma-separated. Every tool accepts an optional `user`
+# argument that must be one of these. For a single-user setup just repeat
+# COACH_USER_ID here (or drop the line entirely).
+COACH_USERS = "me"
+
+# Client id your Claude custom connector will present. Any string; it just has
+# to match what you type into the connector settings.
+COACH_OAUTH_CLIENT_ID = "claude-connector"
+
+# --- Optional: a second Claude account with its own default user -------------
+# Uncomment to let another household member connect from THEIR Claude account
+# and have their own diary as the default. They still address you via `user`.
+# COACH_OAUTH_CLIENT_ID_2 = "claude-connector-partner"
+# COACH_OAUTH_USER_2      = "partner"      # must also be listed in COACH_USERS
+
+# --- Optional: FatSecret Premier only ----------------------------------------
+# Region/language do NOT work on the Basic plan — v1 endpoints ignore them and
+# foods.search.v3 requires Premier scope. Uncomment once you have Premier;
+# client.ts picks them up automatically.
+# COACH_REGION   = "RU"
+# COACH_LANGUAGE = "ru"
+
+# KV namespace for goals, local foods, FatSecret OAuth tokens and transient
+# OAuth state. Create it, then paste the printed id below:
+#   npx wrangler kv namespace create fatsecret_coach
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Secrets are NOT set here — use `wrangler secret put NAME`:
+#   FATSECRET_CONSUMER_KEY      — OAuth 1.0 consumer key (all FatSecret calls)
+#   FATSECRET_CONSUMER_SECRET   — OAuth 1.0 consumer secret
+#   COACH_OAUTH_CLIENT_SECRET   — secret for COACH_OAUTH_CLIENT_ID
+#   COACH_OAUTH_CLIENT_SECRET_2 — secret for COACH_OAUTH_CLIENT_ID_2 (if used)
+#
+# Note: OAuth 1.0 is used for everything (public + profile). FatSecret's
+# OAuth 2.0 requires an IP whitelist, which is incompatible with Workers'
+# floating edge IPs. OAuth 1.0 authenticates by request signature instead.
