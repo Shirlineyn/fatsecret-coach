@@ -120,6 +120,26 @@ OAuth-токен к своему профилю на fatsecret.com.
 
 ## Установка
 
+Если хочется понять, *как* эта штука устроена, или собрать похожий MCP-сервер
+под другой API — читайте [docs/remote-mcp-recipe.md](docs/remote-mcp-recipe.md):
+там обобщённый рецепт и список подводных камней. Здесь — только «поднять это».
+
+### 0. Перед началом
+
+- **Аккаунт Cloudflare** (бесплатного плана хватает) — `wrangler login` ниже
+  предполагает, что он уже есть. Актуальные лимиты Workers и KV смотрите на
+  [cloudflare.com/plans/developer-platform](https://www.cloudflare.com/plans/developer-platform/):
+  на free tier лимит на **записи** в KV заметно ниже, чем на чтения, и при
+  активном логировании вдвоём в него теоретически можно упереться.
+- **Node.js 18+** — `wrangler` ставится локально через `npm install`,
+  глобально его тянуть не нужно.
+- **Первый `wrangler deploy` попросит зарегистрировать workers.dev-поддомен** —
+  это интерактивный вопрос, один раз на аккаунт. Он определит хост вида
+  `<worker-name>.<your-sub>.workers.dev`.
+- **Планируете сразу двоих?** Тогда на шаге 2 понадобится ещё и
+  `COACH_OAUTH_CLIENT_SECRET_2` — см. [Per-bearer routing](#per-bearer-routing-несколько-claude-аккаунтов).
+  Настроить второго можно и позже, ничего не ломая.
+
 ### 1. Зарегистрировать приложение в FatSecret
 
 1. Создать аккаунт на [platform.fatsecret.com](https://platform.fatsecret.com).
