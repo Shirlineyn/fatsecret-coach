@@ -37,6 +37,15 @@ Remote MCP server для FatSecret на Cloudflare Workers. Один публи�
 кладётся в KV, виден всем членам household и получает `food_id` с префиксом
 `local_`, пригодный для `create_food_entry`.
 
+Записи с `local_`-продуктами FatSecret не видит: они лежат в KV как локальный
+дневник (макросы пересчитаны на `number_of_units` и закешированы в момент
+записи). `today_summary`, `range_summary` и `suggest_meal` складывают оба
+дневника, `get_food_entries` отдаёт локальные записи отдельным полем
+`local_entries`, `delete_food_entry` удаляет и те и другие. В приложении
+FatSecret такие записи не появятся, а `copy_food_entries` их не копирует.
+Список ключей KV согласован в конечном счёте, поэтому только что сделанная
+запись может попасть в сводку с задержкой до минуты.
+
 ## Household mode (multiple users)
 
 Один воркер обслуживает несколько FatSecret-аккаунтов одной семьи / пары. Список

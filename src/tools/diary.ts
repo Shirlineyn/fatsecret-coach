@@ -1,20 +1,52 @@
 import { z } from "zod";
-import { defineTool, daysSinceEpoch, mealSchema, userSchema, type ToolDef } from "./types";
+import type { Env } from "../env";
+import { defineTool, daysSinceEpoch, mealSchema, todayIsoDate, userSchema, type MealType, type ToolDef } from "./types";
 import { fs } from "../fatsecret/client";
-import { listUsers, storage } from "../storage/kv";
+import { isLocalId, listUsers, storage } from "../storage/kv";
+import { createLocalEntry } from "../diary/entries";
+
+/** One diary write, routed by food id: `local_*` foods go to KV, the rest to FatSecret. */
+async function createEntry(
+  env: Env,
+  user: string,
+  args: { food_id: string; food_entry_name: string; serving_id?: string; number_of_units: number; meal: MealType; date?: string },
+): Promise<unknown> {
+  if (isLocalId(args.food_id)) return createLocalEntry(storage(env, user), args);
+  if (!args.serving_id) throw new Error(`serving_id is required for FatSecret food ${args.food_id} (get it from get_food).`);
+  return fs.profile(
+    env,
+    "food_entry.create",
+    {
+      food_id: args.food_id,
+      food_entry_name: args.food_entry_name,
+      serving_id: args.serving_id,
+      number_of_units: args.number_of_units,
+      meal: args.meal,
+      date: daysSinceEpoch(args.date),
+    },
+    user,
+  );
+}
 
 export const diaryTools: ToolDef[] = [
   defineTool({
     name: "get_food_entries",
-    description: "Get a household member's food diary entries for a given date. Defaults to the current bearer's primary user.",
+    description:
+      "Get a household member's food diary entries for a given date: the raw FatSecret response plus `local_entries` (foods logged from the local database, which FatSecret does not store). Defaults to the current bearer's primary user.",
     inputSchema: z
       .object({
         user: userSchema,
         date: z.string().optional().describe("ISO date YYYY-MM-DD. Defaults to today."),
       })
       .strict(),
-    handler: ({ user, date }, { env, requestUser }) =>
-      fs.profile(env, "food_entries.get.v2", { date: daysSinceEpoch(date) }, user ?? requestUser),
+    handler: async ({ user, date }, { env, requestUser }) => {
+      const store = storage(env, user ?? requestUser);
+      const [resp, local_entries] = await Promise.all([
+        fs.profile(env, "food_entries.get.v2", { date: daysSinceEpoch(date) }, store.userId),
+        store.listLocalEntriesForDate(date ?? todayIsoDate()),
+      ]);
+      return { ...(resp as object), local_entries };
+    },
   }),
 
   defineTool({
@@ -33,32 +65,22 @@ export const diaryTools: ToolDef[] = [
   defineTool({
     name: "create_food_entry",
     description:
-      "Add a food entry to a household member's diary. Defaults to the current bearer's primary user. If a meal was eaten by both members — call twice with different `user`.",
+      "Add a food entry to a household member's diary. Defaults to the current bearer's primary user. If a meal was eaten by both members — call twice with different `user`. A `local_` food_id (from add_local_food / search_foods local matches) is logged to the local diary: number_of_units multiplies the local food's serving, serving_id is not needed. Local entries count in today_summary and range_summary but do not appear in the FatSecret app.",
     inputSchema: z
       .object({
         user: userSchema,
         food_id: z.string(),
         food_entry_name: z.string().describe("Display name shown in the diary, e.g. 'Chicken breast 200g'"),
-        serving_id: z.string().describe("Serving id (from food.get) — defines the unit (g, oz, cup, etc.)"),
+        serving_id: z
+          .string()
+          .optional()
+          .describe("Serving id (from get_food) — defines the unit (g, oz, cup, etc.). Required for FatSecret foods, ignored for local_ foods."),
         number_of_units: z.number().positive(),
         meal: mealSchema,
         date: z.string().optional().describe("ISO date YYYY-MM-DD. Defaults to today."),
       })
       .strict(),
-    handler: ({ user, food_id, food_entry_name, serving_id, number_of_units, meal, date }, { env, requestUser }) =>
-      fs.profile(
-        env,
-        "food_entry.create",
-        {
-          food_id,
-          food_entry_name,
-          serving_id,
-          number_of_units,
-          meal,
-          date: daysSinceEpoch(date),
-        },
-        user ?? requestUser,
-      ),
+    handler: async ({ user, ...args }, { env, requestUser }) => createEntry(env, user ?? requestUser, args),
   }),
 
   defineTool({
@@ -74,16 +96,26 @@ export const diaryTools: ToolDef[] = [
         meal: mealSchema.optional(),
       })
       .strict(),
-    handler: ({ user, ...args }, { env, requestUser }) =>
-      fs.profile(env, "food_entry.edit", args as Record<string, string | number>, user ?? requestUser),
+    handler: async ({ user, ...args }, { env, requestUser }) => {
+      if (isLocalId(args.food_entry_id)) {
+        throw new Error("Local diary entries can't be edited. Delete it with delete_food_entry and log it again.");
+      }
+      return fs.profile(env, "food_entry.edit", args as Record<string, string | number>, user ?? requestUser);
+    },
   }),
 
   defineTool({
     name: "delete_food_entry",
-    description: "Delete a single food diary entry by id. Defaults to the current bearer's primary user.",
+    description: "Delete a single food diary entry by id (FatSecret or local_). Defaults to the current bearer's primary user.",
     inputSchema: z.object({ user: userSchema, food_entry_id: z.string() }).strict(),
-    handler: ({ user, food_entry_id }, { env, requestUser }) =>
-      fs.profile(env, "food_entry.delete", { food_entry_id }, user ?? requestUser),
+    handler: async ({ user, food_entry_id }, { env, requestUser }) => {
+      if (!isLocalId(food_entry_id)) {
+        return fs.profile(env, "food_entry.delete", { food_entry_id }, user ?? requestUser);
+      }
+      const deleted = await storage(env, user ?? requestUser).deleteLocalEntry(food_entry_id);
+      if (!deleted) throw new Error(`No local diary entry with id ${food_entry_id}.`);
+      return { deleted: true, entry: deleted };
+    },
   }),
 
   defineTool({
@@ -99,7 +131,7 @@ export const diaryTools: ToolDef[] = [
             z
               .object({
                 food_id: z.string(),
-                serving_id: z.string(),
+                serving_id: z.string().optional().describe("Required for FatSecret foods, omit for local_ foods."),
                 total_units: z.number().positive().describe("TOTAL amount cooked (in serving_id units), to be split across members."),
                 name: z.string().describe("Display name shown in diary, e.g. 'Яйцо' or 'Помидор'"),
               })
@@ -136,7 +168,6 @@ export const diaryTools: ToolDef[] = [
         resolvedShares = Object.fromEntries(authorized.map((u) => [u, equal]));
       }
 
-      const dateInt = daysSinceEpoch(date);
       const jobs: Array<{ user: string; ingredient: string; units: number; promise: Promise<unknown> }> = [];
       for (const [user, share] of Object.entries(resolvedShares)) {
         if (share <= 0) continue;
@@ -147,19 +178,14 @@ export const diaryTools: ToolDef[] = [
             user,
             ingredient: ing.name,
             units,
-            promise: fs.profile(
-              env,
-              "food_entry.create",
-              {
-                food_id: ing.food_id,
-                food_entry_name: ing.name,
-                serving_id: ing.serving_id,
-                number_of_units: units,
-                meal,
-                date: dateInt,
-              },
-              user,
-            ),
+            promise: createEntry(env, user, {
+              food_id: ing.food_id,
+              food_entry_name: ing.name,
+              serving_id: ing.serving_id,
+              number_of_units: units,
+              meal,
+              date,
+            }),
           });
         }
       }
@@ -183,7 +209,7 @@ export const diaryTools: ToolDef[] = [
 
   defineTool({
     name: "copy_food_entries",
-    description: "Copy entries between dates (optionally one meal). Defaults to the current bearer's primary user.",
+    description: "Copy FatSecret entries between dates (optionally one meal). Local diary entries are not copied. Defaults to the current bearer's primary user.",
     inputSchema: z
       .object({
         user: userSchema,

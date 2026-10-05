@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { defineTool, daysSinceEpoch, mealSchema, todayIsoDate, userSchema, type ToolDef } from "./types";
+import { defineTool, mealSchema, todayIsoDate, userSchema, type ToolDef } from "./types";
 import { fs } from "../fatsecret/client";
 import { storage, type Goals } from "../storage/kv";
-import { entriesFromResponse, summarize } from "../coach/aggregate";
+import { summarize } from "../coach/aggregate";
+import { loadDayEntries } from "../diary/entries";
 import { suggestTargets, type ActivityLevel, type Sex } from "../coach/bmr";
 
 const activitySchema = z.enum(["sedentary", "light", "moderate", "active", "very_active"]);
@@ -45,11 +46,7 @@ The "render_hint" field in the response duplicates the key constants so they're 
     handler: async ({ user, date }, { env, requestUser }) => {
       const isoDate = date ?? todayIsoDate();
       const store = storage(env, user ?? requestUser);
-      const [entriesResp, goals] = await Promise.all([
-        fs.profile(env, "food_entries.get.v2", { date: daysSinceEpoch(isoDate) }, store.userId),
-        store.getGoals(),
-      ]);
-      const rawEntries = entriesFromResponse(entriesResp);
+      const [rawEntries, goals] = await Promise.all([loadDayEntries(env, store, isoDate), store.getGoals()]);
       const summary = summarize(rawEntries, goals, isoDate);
       return {
         user: store.userId,
@@ -106,13 +103,7 @@ The "render_hint" field in the response duplicates the key constants so they're 
       const goals = await store.getGoals();
       const days = await Promise.all(
         isoDates.map(async (isoDate) => {
-          const resp = await fs.profile(
-            env,
-            "food_entries.get.v2",
-            { date: daysSinceEpoch(isoDate) },
-            store.userId,
-          );
-          const summary = summarize(entriesFromResponse(resp), goals, isoDate);
+          const summary = summarize(await loadDayEntries(env, store, isoDate), goals, isoDate);
           return {
             date: isoDate,
             consumed: summary.consumed,
@@ -280,14 +271,14 @@ The "render_hint" field in the response duplicates the key constants so they're 
     handler: async ({ user, meal, max_candidates, seed_queries }, { env, requestUser }) => {
       const isoDate = todayIsoDate();
       const store = storage(env, user ?? requestUser);
-      const [entriesResp, goals, favs, mostEaten, recent] = await Promise.all([
-        fs.profile(env, "food_entries.get.v2", { date: daysSinceEpoch(isoDate) }, store.userId),
+      const [dayEntries, goals, favs, mostEaten, recent] = await Promise.all([
+        loadDayEntries(env, store, isoDate),
         store.getGoals(),
         fs.profile(env, "foods.get_favorites", {}, store.userId).catch(() => null),
         fs.profile(env, "foods.get_most_eaten", { meal }, store.userId).catch(() => null),
         fs.profile(env, "foods.get_recently_eaten", { meal }, store.userId).catch(() => null),
       ]);
-      const summary = summarize(entriesFromResponse(entriesResp), goals, isoDate);
+      const summary = summarize(dayEntries, goals, isoDate);
 
       const seedResults = seed_queries
         ? await Promise.all(

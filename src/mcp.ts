@@ -8,6 +8,7 @@ import { profileTools } from "./tools/profile";
 import { favoritesTools } from "./tools/favorites";
 import { recipeTools } from "./tools/recipes";
 import { coachTools } from "./tools/coach";
+import { localFoodTools } from "./tools/local-foods";
 import { FatSecretNotAuthorized, FatSecretApiError } from "./fatsecret/client";
 import { UnknownUserError } from "./storage/kv";
 
@@ -18,6 +19,7 @@ export const ALL_TOOLS: ToolDef[] = [
   ...authTools,
   ...coachTools,
   ...foodTools,
+  ...localFoodTools,
   ...diaryTools,
   ...weightTools,
   ...profileTools,

@@ -196,12 +196,21 @@ export class Storage {
     return out;
   }
 
-  async deleteLocalEntry(date: string, entryId: string): Promise<boolean> {
-    const key = this.localEntryKey(date, entryId);
-    const existing = await this.kv.get(key);
-    if (!existing) return false;
-    await this.kv.delete(key);
-    return true;
+  /** Entry ids are unique per user, so the date part of the key is found by scanning. */
+  async deleteLocalEntry(entryId: string): Promise<LocalEntry | null> {
+    let cursor: string | undefined;
+    const prefix = `local_entry:${this.userId}:`;
+    do {
+      const page = await this.kv.list({ prefix, cursor });
+      const hit = page.keys.find((k) => k.name.endsWith(`:${entryId}`));
+      if (hit) {
+        const entry = await this.kv.get<LocalEntry>(hit.name, "json");
+        await this.kv.delete(hit.name);
+        return entry;
+      }
+      cursor = page.list_complete ? undefined : page.cursor;
+    } while (cursor);
+    return null;
   }
 }
 
