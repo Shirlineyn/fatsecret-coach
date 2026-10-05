@@ -30,9 +30,8 @@
 │    /                  — health JSON                        │
 │    /.well-known/oauth-authorization-server — discovery     │
 │    /.well-known/oauth-protected-resource   — resource      │
-│    /register   — Dynamic Client Registration (OAuth 2.1)   │
 │    /authorize  — auto-approve (single user)                │
-│    /token      — code → bearer, PKCE-aware                 │
+│    /token      — code → bearer: client secret + PKCE        │
 │    /mcp        — JSON-RPC: initialize, tools/list, tools/call│
 │                                                            │
 │  Workers KV: access_token:*, oauth_code:*, прикладное      │
@@ -55,7 +54,7 @@
 
 1. **SDK не работает на Workers.** Не тащить `@modelcontextprotocol/sdk`. Реализовать MCP как JSON-RPC поверх POST `/mcp`: методы `initialize`, `tools/list`, `tools/call`, плюс игнорировать notifications (`notifications/initialized`).
 
-2. **Anthropic custom connector требует OAuth 2.1**, не просто Bearer header. Минимум: discovery + `/authorize` + `/token` + опциональный `/register` (DCR). Однопользователю — auto-approve без UI согласия, statefull код в KV с TTL 10 мин.
+2. **Anthropic custom connector требует OAuth 2.1**, не просто Bearer header. Минимум: discovery + `/authorize` + `/token`; Client ID и Secret вписываются в Advanced settings коннектора. Однопользователю — auto-approve без UI согласия, statefull код в KV с TTL 10 мин. **Но тогда секрет клиента — единственный замок:** `/token` обязан проверять его на каждом обмене, *в том числе* когда клиент прислал PKCE. PKCE доказывает, что код обменивает тот же, кто его запросил, а не что это вы. В первой версии fatsecret-coach секрет проверялся только без PKCE, а `/register` (DCR) отдавал его любому — по одному URL воркера кто угодно получал доступ к дневникам. DCR с auto-approve не делать вовсе: он по определению выдаёт креды анониму.
 
 3. **PKCE поддержать обязательно** — claude.ai его шлёт. Сравнить `SHA-256(code_verifier)` с сохранённым `code_challenge`.
 
@@ -111,7 +110,7 @@ id = "REPLACE_ME"
 |---|---|
 | `src/env.ts` | `Env` interface — типы для KV, vars, secrets |
 | `src/storage/kv.ts` | Обёртка над KV: типизированные get/put для прикладных ключей + OAuth-state с TTL |
-| `src/oauth/claude-provider.ts` | OAuth 2.1 для Claude: discovery, authorize, token, register, verifyBearer |
+| `src/oauth/claude-provider.ts` | OAuth 2.1 для Claude: discovery, authorize, token (с обязательным секретом клиента), verifyBearer |
 | `src/oauth/<vendor>-oauth.ts` | Подпись/обмен токенов внешнего API (Web Crypto HMAC) |
 | `src/<vendor>/client.ts` | REST-клиент: один путь signed-fetch |
 | `src/tools/<domain>.ts` | По файлу на домен. Каждый tool: `name`, `description`, `inputSchema` (zod), `handler` |

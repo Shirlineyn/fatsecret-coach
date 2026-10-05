@@ -49,16 +49,37 @@ async function sha256Base64Url(input: string): Promise<string> {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+function basicCredentials(req: Request): { id: string; secret: string } | null {
+  const m = /^Basic\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
+  if (!m) return null;
+  let decoded: string;
+  try {
+    decoded = atob(m[1]!);
+  } catch {
+    return null;
+  }
+  const i = decoded.indexOf(":");
+  if (i < 0) return null;
+  return { id: decodeURIComponent(decoded.slice(0, i)), secret: decodeURIComponent(decoded.slice(i + 1)) };
+}
+
+/** Compare digests rather than the strings, so timing does not leak a matching prefix. */
+async function secretsEqual(a: string, b: string): Promise<boolean> {
+  const [da, db] = await Promise.all([sha256Base64Url(a), sha256Base64Url(b)]);
+  let diff = da.length ^ db.length;
+  for (let i = 0; i < Math.min(da.length, db.length); i++) diff |= da.charCodeAt(i) ^ db.charCodeAt(i);
+  return diff === 0;
+}
+
 export function discoveryDocument(origin: string): Response {
   const body = {
     issuer: origin,
     authorization_endpoint: `${origin}/authorize`,
     token_endpoint: `${origin}/token`,
-    registration_endpoint: `${origin}/register`,
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
+    token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     scopes_supported: ["mcp"],
   };
   return Response.json(body);
@@ -71,17 +92,6 @@ export function protectedResourceDocument(origin: string): Response {
     bearer_methods_supported: ["header"],
   };
   return Response.json(body);
-}
-
-export async function handleRegister(req: Request, env: Env): Promise<Response> {
-  if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
-  // DCR returns the primary client. Secondary clients are configured out-of-band
-  // (operator gives them to a household member who adds the connector manually).
-  return Response.json({
-    client_id: env.COACH_OAUTH_CLIENT_ID,
-    client_secret: env.COACH_OAUTH_CLIENT_SECRET,
-    token_endpoint_auth_method: "client_secret_post",
-  });
 }
 
 export async function handleAuthorize(req: Request, env: Env): Promise<Response> {
@@ -122,8 +132,9 @@ export async function handleToken(req: Request, env: Env): Promise<Response> {
     return Response.json({ error: "unsupported_grant_type" }, { status: 400 });
   }
   const code = form.get("code");
-  const clientId = form.get("client_id");
-  const clientSecret = form.get("client_secret");
+  const basic = basicCredentials(req);
+  const clientId = basic?.id ?? form.get("client_id");
+  const clientSecret = basic?.secret ?? form.get("client_secret");
   const codeVerifier = form.get("code_verifier");
   const redirectUri = form.get("redirect_uri");
 
@@ -135,21 +146,22 @@ export async function handleToken(req: Request, env: Env): Promise<Response> {
   if (!client || entry.client_id !== client.client_id) {
     return Response.json({ error: "invalid_client" }, { status: 400 });
   }
+  // The client secret is the only thing standing between the public internet and
+  // the household's diaries: /authorize approves automatically, so the secret is
+  // checked on every exchange, PKCE or not.
+  if (!clientSecret || !(await secretsEqual(clientSecret, client.client_secret))) {
+    return Response.json({ error: "invalid_client" }, { status: 401 });
+  }
   if (redirectUri !== entry.redirect_uri) {
     return Response.json({ error: "invalid_grant", error_description: "redirect_uri mismatch" }, { status: 400 });
   }
 
-  const usingPkce = !!entry.code_challenge;
-  if (usingPkce) {
+  if (entry.code_challenge) {
     if (!codeVerifier) return Response.json({ error: "invalid_grant", error_description: "missing code_verifier" }, { status: 400 });
     const method = entry.code_challenge_method ?? "plain";
     const computed = method === "S256" ? await sha256Base64Url(codeVerifier) : codeVerifier;
     if (computed !== entry.code_challenge) {
       return Response.json({ error: "invalid_grant", error_description: "code_verifier mismatch" }, { status: 400 });
-    }
-  } else {
-    if (clientSecret !== client.client_secret) {
-      return Response.json({ error: "invalid_client" }, { status: 400 });
     }
   }
 

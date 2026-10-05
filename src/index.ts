@@ -5,7 +5,6 @@ import {
   protectedResourceDocument,
   handleAuthorize,
   handleToken,
-  handleRegister,
   verifyBearer,
 } from "./oauth/claude-provider";
 
@@ -37,7 +36,6 @@ export default {
     if (url.pathname === "/.well-known/oauth-protected-resource") {
       return cors(protectedResourceDocument(origin));
     }
-    if (url.pathname === "/register") return cors(await handleRegister(request, env));
     if (url.pathname === "/authorize") return cors(await handleAuthorize(request, env));
     if (url.pathname === "/token") return cors(await handleToken(request, env));
 

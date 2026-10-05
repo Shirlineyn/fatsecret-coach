@@ -190,16 +190,25 @@ npx wrangler deploy
 
 ### 3. Подключить как Custom Connector в Claude
 
-- **claude.ai / Claude mobile**: Settings → Connectors → `+` → Add custom connector.
-- **Claude Code**: `claude mcp add --transport http fatsecret https://fatsecret-coach.<your-sub>.workers.dev/mcp`.
+- **claude.ai / Claude mobile**: Settings → Connectors → `+` → Add custom connector,
+  Client ID и Secret — в **Advanced settings**.
+- **Claude Code**: `MCP_CLIENT_SECRET=<secret> claude mcp add --transport http --client-id claude-connector --client-secret fatsecret https://fatsecret-coach.<your-sub>.workers.dev/mcp`.
 
 Параметры:
 - **MCP Server URL**: `https://fatsecret-coach.<your-sub>.workers.dev/mcp`
 - **OAuth Client ID**: `claude-connector` (значение `COACH_OAUTH_CLIENT_ID`)
 - **OAuth Client Secret**: значение `COACH_OAUTH_CLIENT_SECRET` из шага 2
 
-Claude один раз пройдёт OAuth handshake (вы увидите редирект на свой Worker,
-автоодобрение, и обратно), затем коннектор появится как **Connected**.
+Client ID и Secret обязательны: Dynamic Client Registration воркер намеренно не
+поддерживает. Claude один раз пройдёт OAuth handshake (редирект на ваш Worker,
+автоматическое одобрение и обратно), затем коннектор появится как **Connected**.
+
+> **Секрет клиента — единственная защита.** `/authorize` одобряет любой запрос
+> без экрана согласия, поэтому `/token` выдаёт токен только тому, кто предъявил
+> `client_secret` (в теле или Basic-заголовке), PKCE проверяется дополнительно.
+> Кто знает секрет, тот читает и пишет дневники всех членов household. Храните
+> его как пароль; при утечке — `wrangler secret put COACH_OAUTH_CLIENT_SECRET`
+> с новым значением и удаление ключей `access_token:*` из KV.
 
 ### 4. Авторизовать FatSecret (один раз)
 
@@ -265,7 +274,7 @@ curl http://localhost:8787/.well-known/oauth-authorization-server
 
 1. `curl https://<host>/` → `{ "name": "fatsecret-coach", "status": "ok", … }`.
 2. `curl https://<host>/.well-known/oauth-authorization-server` → JSON с
-   `authorization_endpoint`, `token_endpoint`, `registration_endpoint`.
+   `authorization_endpoint` и `token_endpoint`, без `registration_endpoint`.
 3. `curl -i -X POST https://<host>/mcp` → 401 + заголовок `WWW-Authenticate`.
 4. В Claude добавлен коннектор → tools/list возвращает 31 инструмент.
 5. `auth_status` → `{ authorized: false }`; пройти `start_auth`/`complete_auth`
@@ -298,7 +307,7 @@ Claude ──Bearer──▶ /mcp ─dispatch─▶ tools/*
 |---|---|
 | `src/env.ts` | `Env` interface — типы для KV, vars, secrets |
 | `src/storage/kv.ts` | Обёртка над KV: goals, local foods, FS-токены, OAuth-state с TTL |
-| `src/oauth/claude-provider.ts` | OAuth 2.1 для Claude: discovery, authorize, token, register, verifyBearer |
+| `src/oauth/claude-provider.ts` | OAuth 2.1 для Claude: discovery, authorize, token (с обязательным секретом клиента), verifyBearer |
 | `src/oauth/fatsecret-oauth1.ts` | OAuth 1.0 подпись и обмен токенов (Web Crypto HMAC-SHA1) |
 | `src/fatsecret/client.ts` | REST-клиент: один путь signed-fetch |
 | `src/tools/*.ts` | По файлу на домен; `types.ts` — `ToolDef` + `defineTool` |
