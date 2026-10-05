@@ -2,6 +2,22 @@
   "name": "fatsecret-coach",
   "version": "0.1.0",
   "description": "Remote MCP server for FatSecret on Cloudflare Workers — log food, track macros, get meal suggestions.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Shirlineyn/fatsecret-coach.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "fatsecret",
+    "cloudflare-workers",
+    "nutrition"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "private": true,
   "type": "module",
   "scripts": {
