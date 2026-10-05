@@ -65,7 +65,7 @@
 
 6. **FatSecret OAuth 1.0: параметры в query string / body, не в Authorization header.** Их парсер игнорирует header — выдаёт «Missing required parameter: oauth_consumer_key». Сигнатура та же RFC 5849, только размещение другое. Эталон подписи: [`src/oauth/fatsecret-oauth1.ts`](../src/oauth/fatsecret-oauth1.ts). Мораль шире FatSecret: сверяйте, *где* конкретный вендор ждёт oauth-параметры.
 
-7. **Имена методов в стороннем API** — внимательно сверять. У FatSecret CRUD одной записи — singular (`food_entry.create`), коллекция — plural (`food_entries.get.v2`). Промахнулся → API возвращает код 10 «Unknown method».
+7. **Имена методов в стороннем API** — внимательно сверять. У FatSecret CRUD одной записи — singular (`food_entry.create`), коллекция — plural (`food_entries.get.v2`). Промахнулся → API возвращает код 10 «Unknown method». Правило не без исключений: месяц веса — `weights.get_month.v2`, а `weight.get_month` не существует. Проверять имя дёшево: 2-legged вызов несуществующего метода даёт код 10, существующего профильного — код 2 «Missing oauth_token».
 
 8. **`wrangler secret put` читает stdin** — если запайпить `openssl rand -hex 32 | wrangler secret put X`, значение уйдёт навсегда и `wrangler` его не покажет. Сначала `echo` в переменную, печатай, **потом** пайпь.
 
@@ -74,6 +74,8 @@
 10. **Не делать токены долгоживущими «навсегда».** В KV `access_token` ставить TTL (год — нормально). Refresh не реализовывать — Claude сам передоговорится при истечении через discovery.
 
 11. **Single-user mode сильно упрощает всё.** Один client_id, один client_secret, никакого UI consent. Multi-user — отдельный слой, см. «Расширения» ниже; закладываться на него заранее не нужно, но и рефакторинг он потребует не катастрофический.
+
+12. **Схемы в `tools/list` — JSON Schema 7, не OpenAPI 3.** `zodToJsonSchema(schema, { target: "openApi3" })` превращает `.positive()` в `exclusiveMinimum: true` (булево, диалект draft-04). API Anthropic такую схему отвергает, и Claude молча выкидывает инструмент из коннектора: остальные работают, ошибки в интерфейсе нет. Генерировать с `{ target: "jsonSchema7", $refStrategy: "none" }` и держать тест на `tools/list` (`tests/tool-schemas.test.ts`).
 
 ## Пошаговый рецепт
 

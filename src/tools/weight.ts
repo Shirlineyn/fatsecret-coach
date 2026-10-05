@@ -39,6 +39,6 @@ export const weightTools: ToolDef[] = [
       })
       .strict(),
     handler: ({ user, date }, { env, requestUser }) =>
-      fs.profile(env, "weight.get_month", { date: daysSinceEpoch(date) }, user ?? requestUser),
+      fs.profile(env, "weights.get_month.v2", { date: daysSinceEpoch(date) }, user ?? requestUser),
   }),
 ];

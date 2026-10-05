@@ -58,7 +58,7 @@ function fail(id: number | string | null, error: { code: number; message: string
 }
 
 function describeTool(t: ToolDef): { name: string; description: string; inputSchema: unknown } {
-  const schema = zodToJsonSchema(t.inputSchema, { target: "openApi3" }) as Record<string, unknown>;
+  const schema = zodToJsonSchema(t.inputSchema, { target: "jsonSchema7", $refStrategy: "none" }) as Record<string, unknown>;
   delete schema.$schema;
   return { name: t.name, description: t.description, inputSchema: schema };
 }
